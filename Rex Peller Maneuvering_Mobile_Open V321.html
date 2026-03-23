@@ -267,14 +267,59 @@ function dCH(){
   c.restore();
 }
 
+// =========================================================================
+// [4. 터치 및 마우스 입력 처리 (Touch & Mouse Input Control)]
+// 모바일 터치나 마우스 드래그로 조종간을 조작하는 이벤트 리스너들입니다.
+// =========================================================================
 var mouseDrag=null,wSA=0,wSS=0,touches={};
-function hitCombo(cX,cY){var r=cc.getBoundingClientRect();var mx=(cX-r.left)/r.width*260-130,my=(cY-r.top)/r.height*235-118;if(mx>-28&&mx<0&&my>-33&&my<33)return'pt';if(mx>=0&&mx<28&&my>-33&&my<33)return'sb';return'wh';}
+
+// [수정됨] 화면 상의 좌표를 받아 어느 레버를 만졌는지 판정합니다.
+function hitCombo(cX,cY){
+  var r=cc.getBoundingClientRect();
+  var mx=(cX-r.left)/r.width*260-130, my=(cY-r.top)/r.height*235-118;
+  
+  // 1. 중앙 개별 레버(Port / Stbd) 터치 인식
+  if(mx>-28&&mx<0&&my>-33&&my<33) return 'pt';
+  if(mx>=0&&mx<28&&my>-33&&my<33) return 'sb';
+  
+  // 2. [추가된 로직] 중심점으로부터의 거리를 계산 (피타고라스 정리)
+  var dist = Math.sqrt(mx*mx + my*my);
+  
+  // 거리가 65 이상, 120 이하인 바깥쪽 둥근 테두리를 잡았을 때만 메인 휠(wh)로 인식!
+  if(dist > 65 && dist < 120) return 'wh';
+  
+  // 빈 공간을 누르면 아무것도 안 함
+  return null; 
+}
+
 cc.addEventListener('mousedown',function(e){var m=hitCombo(e.clientX,e.clientY);mouseDrag=m;if(m==='wh'){var r=cc.getBoundingClientRect();wSA=Math.atan2((e.clientX-r.left)/r.width*260-130,-((e.clientY-r.top)/r.height*235-118))*R2D;wSS=ship.st;}});
 cc.addEventListener('touchstart',function(e){e.preventDefault();for(var i=0;i<e.changedTouches.length;i++){var t=e.changedTouches[i],m=hitCombo(t.clientX,t.clientY),info={mode:m};if(m==='wh'){var r=cc.getBoundingClientRect();info.wSA=Math.atan2((t.clientX-r.left)/r.width*260-130,-((t.clientY-r.top)/r.height*235-118))*R2D;info.wSS=ship.st;}touches[t.identifier]=info;}},{passive:false});
-function doStXY(cX,cY){var r=cc.getBoundingClientRect();ship.st=Math.max(-90,Math.min(90,wSS+(Math.atan2((cX-r.left)/r.width*260-130,-((cY-r.top)/r.height*235-118))*R2D-wSA)));}
-function doStXYT(cX,cY,info){var r=cc.getBoundingClientRect();ship.st=Math.max(-90,Math.min(90,info.wSS+(Math.atan2((cX-r.left)/r.width*260-130,-((cY-r.top)/r.height*235-118))*R2D-info.wSA)));}
+
+// [수정됨] 마우스/터치로 휠을 드래그할 때 묵직하게 돌아가도록 무게감을 추가했습니다.
+function doStXY(cX,cY){
+  var r=cc.getBoundingClientRect();
+  var currentAngle = Math.atan2((cX-r.left)/r.width*260-130,-((cY-r.top)/r.height*235-118))*R2D;
+  var deltaAngle = currentAngle - wSA;
+  
+  // [조작감 튜닝 가이드] 
+  // SENSITIVITY(민감도)를 0.5로 설정하여 손을 움직인 거리의 50%만 휠이 따라가게 합니다.
+  // 더 뻑뻑하게 하려면 0.3, 원래대로 가볍게 하려면 1.0으로 수정하세요.
+  var SENSITIVITY = 0.5; 
+  ship.st=Math.max(-90,Math.min(90,wSS+(deltaAngle * SENSITIVITY)));
+}
+
+function doStXYT(cX,cY,info){
+  var r=cc.getBoundingClientRect();
+  var currentAngle = Math.atan2((cX-r.left)/r.width*260-130,-((cY-r.top)/r.height*235-118))*R2D;
+  var deltaAngle = currentAngle - info.wSA;
+  
+  var SENSITIVITY = 0.5; // 터치 시 무게감 계수
+  ship.st=Math.max(-90,Math.min(90,info.wSS+(deltaAngle * SENSITIVITY)));
+}
+
 function doThY(cY,mode){var r=cc.getBoundingClientRect();var v=Math.max(-90,Math.min(90,((118-(cY-r.top)/r.height*235)/58)*90));if(mode==='pt')ship.pt=v;else ship.sb=v;}
 
+// --- 아래는 기존에 정상 작동하던 거버너, CPP, 전역 마우스 이벤트 (그대로 유지) ---
 function isPortGov(cX){var r=govCv.getBoundingClientRect();return(cX-r.left)/r.width<0.5;}
 govCv.addEventListener('mousedown',function(e){mouseDrag=isPortGov(e.clientX)?'gvP':'gvS';doGovY(e.clientY,mouseDrag==='gvP');});
 govCv.addEventListener('touchstart',function(e){e.preventDefault();for(var i=0;i<e.changedTouches.length;i++){var t=e.changedTouches[i],ip=isPortGov(t.clientX);touches[t.identifier]={mode:ip?'gvP':'gvS'};doGovY(t.clientY,ip);}},{passive:false});
@@ -289,7 +334,6 @@ window.addEventListener('mousemove',function(e){if(!mouseDrag)return;if(mouseDra
 window.addEventListener('mouseup',function(){mouseDrag=null;});
 window.addEventListener('touchmove',function(e){var ha=false;for(var k in touches)ha=true;if(!ha)return;e.preventDefault();for(var i=0;i<e.changedTouches.length;i++){var t=e.changedTouches[i],info=touches[t.identifier];if(!info)continue;if(info.mode==='wh')doStXYT(t.clientX,t.clientY,info);else if(info.mode==='pt'||info.mode==='sb')doThY(t.clientY,info.mode);else if(info.mode==='gvP')doGovY(t.clientY,true);else if(info.mode==='gvS')doGovY(t.clientY,false);else if(info.mode==='cpP')doCppY(t.clientY,true);else if(info.mode==='cpS')doCppY(t.clientY,false);}},{passive:false});
 window.addEventListener('touchend',function(e){for(var i=0;i<e.changedTouches.length;i++)delete touches[e.changedTouches[i].identifier];});
-
 function pI(){
   if(pk['a']||pk['A'])ship.st=Math.max(-90,ship.st-0.6);if(pk['d']||pk['D'])ship.st=Math.min(90,ship.st+0.6);
   if(pk['w']||pk['W'])ship.pt=Math.min(90,ship.pt+1.2);if(pk['s']||pk['S'])ship.pt=Math.max(-90,ship.pt-1.2);
